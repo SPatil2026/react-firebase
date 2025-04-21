@@ -1,60 +1,37 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { auth } from '../firebase.config'
 import { Navigate, useNavigate } from 'react-router-dom'
+import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore'
 
-export default function Dashboard() {
+export default function Dashboard({ pizzas }) {
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [cart, setCart] = useState({});
+  const navigate = useNavigate();
+  const db = getFirestore();
 
-  const pizzas = [
-    { 
-      id: 1, 
-      name: 'Margherita', 
-      price: '$12', 
-      category: 'vegetarian', 
-      image: 'https://static.toiimg.com/thumb/56868564.cms?imgsize=1948751&width=800&height=800', 
-      description: 'Fresh mozzarella, tomatoes, basil leaves, olive oil, and salt' 
-    },
-    { 
-      id: 2, 
-      name: 'Pepperoni', 
-      price: '$14', 
-      category: 'meat', 
-      image: 'https://www.simplyrecipes.com/thmb/I4razizFmeF8ua2jwuD0Pq4XpP8=/1500x0/filters:no_upscale():max_bytes(150000):strip_icc()/__opt__aboutcom__coeus__resources__content_migration__simply_recipes__uploads__2019__09__easy-pepperoni-pizza-lead-4-82c60893fcad4ade906a8a9f59b8da9d.jpg', 
-      description: 'Pepperoni, mozzarella cheese, tomato sauce' 
-    },
-    { 
-      id: 3, 
-      name: 'BBQ Chicken', 
-      price: '$16', 
-      category: 'meat', 
-      image: 'https://grilledcheesesocial.com/wp-content/uploads/2024/06/bbq-chicken-thighs-recipe-thumbnail.jpg', 
-      description: 'Grilled chicken, BBQ sauce, red onions, cilantro' 
-    },
-    { 
-      id: 4, 
-      name: 'Veggie Supreme', 
-      price: '$15', 
-      category: 'vegetarian', 
-      image: 'https://www.thursdaynightpizza.com/wp-content/uploads/2022/06/veggie-pizza-side-view-out-of-oven-720x480.png', 
-      description: 'Bell peppers, mushrooms, olives, onions, tomatoes' 
-    },
-    { 
-      id: 5, 
-      name: 'Hawaiian', 
-      price: '$15', 
-      category: 'meat', 
-      image: 'https://www.allrecipes.com/thmb/v1Xi2wtebK1sZwSJitdV4MGKl1c=/1500x0/filters:no_upscale():max_bytes(150000):strip_icc()/hawaiian-pizza-ddmfs-3x2-132-450eff04ad924d9a9eae98ca44e3f988.jpg', 
-      description: 'Ham, pineapple, mozzarella cheese' 
-    },
-    { 
-      id: 6, 
-      name: 'Garden Fresh', 
-      price: '$13', 
-      category: 'vegetarian', 
-      image: 'https://firangiburgers.com/wp-content/uploads/2019/03/GARDEN-FRESH-PIZZA.jpg', 
-      description: 'Spinach, cherry tomatoes, feta cheese, olives' 
+  useEffect(() => {
+    const loadUserData = async () => {
+      if (auth.currentUser) {
+        const userDoc = doc(db, 'users', auth.currentUser.uid);
+        const docSnap = await getDoc(userDoc);
+        if (docSnap.exists()) {
+          setCart(docSnap.data().cart || {});
+        }
+      }
+    };
+    loadUserData();
+  }, [db]);
+
+  const addToCart = async (pizza) => {
+    const newCart = { ...cart };
+    newCart[pizza.id] = (newCart[pizza.id] || 0) + 1;
+    setCart(newCart);
+    
+    if (auth.currentUser) {
+      const userDoc = doc(db, 'users', auth.currentUser.uid);
+      await setDoc(userDoc, { cart: newCart }, { merge: true });
     }
-  ];
+  };
 
   if (!auth.currentUser) {
     return <Navigate to="/" replace />;
@@ -65,23 +42,50 @@ export default function Dashboard() {
       <div style={styles.welcome}>
         <h1>Welcome to Your Pizza Paradise, {auth.currentUser.email}!</h1>
         <div style={styles.categories}>
-          <button onClick={() => setSelectedCategory('all')} style={selectedCategory === 'all' ? styles.activeCategory : styles.category}>All</button>
-          <button onClick={() => setSelectedCategory('vegetarian')} style={selectedCategory === 'vegetarian' ? styles.activeCategory : styles.category}>Vegetarian</button>
-          <button onClick={() => setSelectedCategory('meat')} style={selectedCategory === 'meat' ? styles.activeCategory : styles.category}>Meat Lovers</button>
+          <button onClick={() => setSelectedCategory('all')} 
+                  style={selectedCategory === 'all' ? styles.activeCategory : styles.category}>
+            All
+          </button>
+          <button onClick={() => setSelectedCategory('vegetarian')} 
+                  style={selectedCategory === 'vegetarian' ? styles.activeCategory : styles.category}>
+            Vegetarian
+          </button>
+          <button onClick={() => setSelectedCategory('meat')} 
+                  style={selectedCategory === 'meat' ? styles.activeCategory : styles.category}>
+            Meat Lovers
+          </button>
         </div>
       </div>
+
+      <button 
+        onClick={() => navigate('/cart')} 
+        style={styles.cartButton}
+      >
+        View Cart ({Object.values(cart).reduce((a, b) => a + b, 0)} items)
+      </button>
 
       <div style={styles.pizzaGrid}>
         {pizzas
           .filter(pizza => selectedCategory === 'all' || pizza.category === selectedCategory)
           .map((pizza) => (
             <div key={pizza.id} style={styles.pizzaCard}>
-              <img src={pizza.image} alt={pizza.name} style={styles.pizzaImage} />
+              <div style={styles.imageContainer}>
+                <img src={pizza.image} alt={pizza.name} style={styles.pizzaImage} />
+                {pizza.isAvailable && <span style={styles.badge}>Available</span>}
+              </div>
               <div style={styles.pizzaInfo}>
                 <h3>{pizza.name}</h3>
                 <p style={styles.description}>{pizza.description}</p>
-                <p style={styles.price}>{pizza.price}</p>
-                <button style={styles.orderButton}>Add to Cart</button>
+                <p style={styles.price}>${pizza.price?.toFixed(2)}</p>
+                <button 
+                  style={styles.orderButton}
+                  onClick={() => {
+                    addToCart(pizza);
+                    navigate('/cart');
+                  }}
+                >
+                  Add to Cart
+                </button>
               </div>
             </div>
           ))}
@@ -133,12 +137,37 @@ const styles = {
     borderRadius: '12px',
     overflow: 'hidden',
     boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-    transition: 'transform 0.2s ease'
+    transition: 'all 0.3s ease',
+    cursor: 'pointer',
+    '&:hover': {
+      transform: 'translateY(-5px)',
+      boxShadow: '0 8px 15px rgba(0,0,0,0.2)',
+    }
+  },
+  imageContainer: {
+    position: 'relative',
+    overflow: 'hidden',
+    height: '200px',
   },
   pizzaImage: {
     width: '100%',
-    height: '200px',
-    objectFit: 'cover'
+    height: '100%',
+    objectFit: 'cover',
+    transition: 'transform 0.3s ease',
+    '&:hover': {
+      transform: 'scale(1.1)',
+    }
+  },
+  badge: {
+    position: 'absolute',
+    top: '10px',
+    right: '10px',
+    backgroundColor: '#4CAF50',
+    color: 'white',
+    padding: '4px 8px',
+    borderRadius: '12px',
+    fontSize: '0.8rem',
+    fontWeight: 'bold',
   },
   pizzaInfo: {
     padding: '1rem'
@@ -162,5 +191,22 @@ const styles = {
     borderRadius: '6px',
     cursor: 'pointer',
     marginTop: '1rem'
+  },
+  cartButton: {
+    position: 'fixed',
+    top: '100px',
+    right: '20px',
+    padding: '1rem 1.5rem',
+    backgroundColor: '#FF6B6B',
+    color: 'white',
+    border: 'none',
+    borderRadius: '50px',
+    cursor: 'pointer',
+    zIndex: 1000,
+    boxShadow: '0 4px 10px rgba(255,107,107,0.3)',
+    transition: 'transform 0.2s ease',
+    '&:hover': {
+      transform: 'scale(1.05)',
+    }
   }
 }
